@@ -93,24 +93,24 @@ MLXFLAGS = -L$(MLXDIR) -lmlx -lXext -lX11 -lm -lz
 
 ## 2. STRUCTURES DE DONNÉES
 
-### 2.1 Structure Principale : t_game
+### 2.1 Structure Principale : t_data
 
 ```c
-typedef struct s_game
+typedef struct s_data
 {
     void    *mlx;              // Pointeur instance MLX
     void    *win;              // Pointeur fenêtre MLX
 
     // Textures (4 orientations)
-    t_texture_img   tex_north;
-    t_texture_img   tex_south;
-    t_texture_img   tex_west;
-    t_texture_img   tex_east;
+    t_img       tex_north;
+    t_img       tex_south;
+    t_img       tex_west;
+    t_img       tex_east;
 
     // Données du jeu
-    t_player    player;        // Position et direction joueur
-    t_map       *map;          // Pointeur vers la map
-    t_textures  *textures;     // Pointeur vers config textures
+    t_cam       cam;           // Position et direction joueur
+    t_grid      *grid;         // Pointeur vers la map
+    t_walls     *walls;        // Pointeur vers config textures
 
     // Buffer d'image
     void        *img;          // Image MLX
@@ -118,20 +118,20 @@ typedef struct s_game
     int         bits_per_pixel;
     int         line_length;
     int         endian;
-}   t_game;
+}   t_data;
 ```
 
 **Explication :**
 - `mlx` et `win` : Gèrent la fenêtre graphique
 - `tex_*` : Stockent les 4 textures de murs chargées
-- `player` : État du joueur (position, direction, FOV)
-- `map` : Grille de la map + infos
+- `cam` : État du joueur (position, direction, FOV)
+- `grid` : Grille de la map + infos
 - `img` + `addr` : Buffer pour dessiner pixels avant affichage
 
-### 2.2 Structure Texture : t_texture_img
+### 2.2 Structure Image/Texture : t_img
 
 ```c
-typedef struct s_texture_img
+typedef struct s_img
 {
     void    *img;              // Pointeur image MLX
     char    *addr;             // Buffer pixels de la texture
@@ -140,7 +140,7 @@ typedef struct s_texture_img
     int     bits_per_pixel;    // Profondeur couleur
     int     line_length;       // Octets par ligne
     int     endian;            // Ordre des octets
-}   t_texture_img;
+}   t_img;
 ```
 
 **Explication :**
@@ -148,10 +148,10 @@ typedef struct s_texture_img
 - `addr` permet d'accéder directement aux pixels
 - `width` et `height` pour le mapping texture→mur
 
-### 2.3 Structure Map : t_map
+### 2.3 Structure Grille : t_grid
 
 ```c
-typedef struct s_map
+typedef struct s_grid
 {
     char    **grid;            // Grille 2D de la map
     int     width;             // Largeur (cases)
@@ -159,7 +159,7 @@ typedef struct s_map
     int     player_x;          // Position spawn X (grid)
     int     player_y;          // Position spawn Y (grid)
     char    player_dir;        // Direction initiale (N/S/E/W)
-}   t_map;
+}   t_grid;
 ```
 
 **Explication :**
@@ -167,10 +167,10 @@ typedef struct s_map
 - `player_x/y` : Coordonnées entières du spawn
 - `player_dir` : Détermine l'orientation initiale du vecteur direction
 
-### 2.4 Structure Configuration : t_textures
+### 2.4 Structure Murs/Config : t_walls
 
 ```c
-typedef struct s_textures
+typedef struct s_walls
 {
     char *north;               // Chemin texture nord
     char *south;               // Chemin texture sud
@@ -179,17 +179,17 @@ typedef struct s_textures
 
     int floor[3];              // Couleur sol RGB
     int ceiling[3];            // Couleur plafond RGB
-}   t_textures;
+}   t_walls;
 ```
 
 **Explication :**
 - Stocke la configuration parsée du fichier .cub
 - `floor/ceiling` : Tableaux RGB [R, G, B] (0-255)
 
-### 2.5 Structure Joueur : t_player
+### 2.5 Structure Caméra : t_cam
 
 ```c
-typedef struct s_player
+typedef struct s_cam
 {
     double  pos_x;             // Position X (coordonnées monde)
     double  pos_y;             // Position Y
@@ -197,7 +197,7 @@ typedef struct s_player
     double  dir_y;             // Vecteur direction Y
     double  plane_x;           // Vecteur plan caméra X
     double  plane_y;           // Vecteur plan caméra Y
-}   t_player;
+}   t_cam;
 ```
 
 **Explication mathématique :**
@@ -219,43 +219,43 @@ FOV = 2 * atan(|plane| / |dir|) ≈ 66°
 - **plane** : Vecteur perpendiculaire à `dir`, définit le FOV
 - **pos** : Position exacte dans la map (flottant pour mouvement fluide)
 
-### 2.6 Structure Rayon : t_ray
+### 2.6 Structure Raycasting : t_cast
 
 ```c
-typedef struct s_ray
+typedef struct s_cast
 {
     // Direction du rayon
-    double  ray_dir_x;
-    double  ray_dir_y;
+    double  dir_x;
+    double  dir_y;
 
     // Position dans la grille (case actuelle testée)
     int     map_x;
     int     map_y;
 
     // Distances jusqu'aux prochaines bordures
-    double  dist_to_bord_x;    // Distance horizontale
-    double  dist_to_bord_y;    // Distance verticale
+    double  side_x;            // Distance horizontale
+    double  side_y;            // Distance verticale
 
     // Deltas (distance pour traverser 1 case)
-    double  delta_dist_x;
-    double  delta_dist_y;
+    double  delta_x;
+    double  delta_y;
 
     // Direction de progression (-1 ou +1)
-    int     step_direction_x;
-    int     step_direction_y;
+    int     step_x;
+    int     step_y;
 
     // Résultats
-    double  perp_wall_dist;    // Distance perpendiculaire au mur
+    double  distance;          // Distance perpendiculaire au mur
     int     side;              // 0=vertical, 1=horizontal
-    int     line_height;       // Hauteur du mur à l'écran (px)
+    int     wall_h;            // Hauteur du mur à l'écran (px)
     double  wall_x;            // Position exacte hit sur le mur
-}   t_ray;
+}   t_cast;
 ```
 
 **Explication :**
 - Utilisé par l'algorithme DDA pour chaque colonne de l'écran
-- `delta_dist` : Distance constante pour avancer d'une case
-- `dist_to_bord` : Distance variable jusqu'à la prochaine bordure
+- `delta_x/y` : Distance constante pour avancer d'une case
+- `side_x/y` : Distance variable jusqu'à la prochaine bordure
 - `side` : Détermine quelle texture utiliser (N/S vs E/W)
 
 ---
@@ -273,21 +273,21 @@ main()
   │    ├─→ parse_map_grid()     // Convertit map en grille
   │    └─→ validate_map_closed()// Vérifie fermeture
   ├─→ mlx_init()                // Initialise MLX
-  ├─→ load_all_textures()       // Charge les 4 textures XPM
+  ├─→ init_wall_textures()      // Charge les 4 textures XPM
   ├─→ init_player()             // Position + direction initiales
   ├─→ mlx_new_window()          // Crée la fenêtre
   ├─→ mlx_new_image()           // Crée le buffer d'image
   ├─→ mlx_hook()                // Configure les hooks
   │    ├─→ close_window         // Croix rouge
   │    ├─→ handle_keypress      // Touches clavier
-  │    └─→ render_loop          // Boucle de rendu
+  │    └─→ render_hook          // Boucle de rendu
   └─→ mlx_loop()                // Boucle événements MLX
        │
        └─→ [Boucle infinie]
             ├─→ render_frame()   // Rendu 1 frame
             │    ├─→ Pour chaque colonne x (0→800):
-            │    │    ├─→ init_ray()
-            │    │    ├─→ init_ray_step()
+            │    │    ├─→ prepare_ray()
+            │    │    ├─→ setup_step()
             │    │    ├─→ algo_dda()         // Trouve mur
             │    │    ├─→ calculate_wall_distance()
             │    │    └─→ draw_column()      // Dessine colonne
@@ -304,54 +304,70 @@ main()
 int main(int argc, char **argv)
 {
     // 1. DÉCLARATION
-    t_game      game;
-    t_textures  textures;
-    t_map       map;
+    t_data      data;
+    t_walls     walls;
+    t_grid      grid;
 
-    // 2. VALIDATION ET PARSING
-    ft_bzero(&textures, sizeof(t_textures));
+    // 2. INITIALISATION À ZÉRO
+    ft_bzero(&data, sizeof(t_data));
+    ft_bzero(&walls, sizeof(t_walls));
+    ft_bzero(&grid, sizeof(t_grid));
 
+    // 3. VALIDATION ET PARSING
     if (check_args(argc, argv) == 0)      // Vérifie argc=2, extension .cub
-        exit(EXIT_FAILURE);
+        cleanup_and_exit(&data, &grid, &walls, EXIT_FAILURE);
 
-    if (check_map(argc, argv, &textures, &map) == 0)  // Parse tout
-        exit(EXIT_FAILURE);
+    if (check_map(argc, argv, &walls, &grid) == 0)  // Parse tout
+        cleanup_and_exit(&data, &grid, &walls, EXIT_FAILURE);
 
-    // 3. INITIALISATION MLX
-    game.mlx = mlx_init();
-    if (!game.mlx)
-        return (1);
+    // 4. INITIALISATION MLX
+    data.mlx = mlx_init();
+    if (!data.mlx)
+    {
+        printf("Error\nFailed to initialize MLX\n");
+        cleanup_and_exit(&data, &grid, &walls, 1);
+    }
 
-    // 4. CHARGEMENT ASSETS
-    load_all_textures(&game, &textures);   // Charge 4 textures XPM
+    // 5. CHARGEMENT ASSETS
+    init_wall_textures(&data, &walls);     // Charge 4 textures XPM
 
-    // 5. INITIALISATION JOUEUR
-    init_player(&game.player, &map);       // Position + direction
+    // 6. INITIALISATION JOUEUR
+    init_player(&data.cam, &grid);         // Position + direction
 
-    // 6. SETUP GAME
-    game.map = &map;
-    game.textures = &textures;
+    // 7. SETUP DATA
+    data.grid = &grid;
+    data.walls = &walls;
 
-    // 7. CRÉATION FENÊTRE
-    game.win = mlx_new_window(game.mlx, 800, 600, "cub3D");
+    // 8. CRÉATION FENÊTRE
+    data.win = mlx_new_window(data.mlx, WIN_WIDTH, WIN_HEIGHT, "cub3D");
+    if (!data.win)
+    {
+        printf("Error\nFailed to create window\n");
+        cleanup_and_exit(&data, &grid, &walls, 1);
+    }
 
-    // 8. CRÉATION BUFFER IMAGE
-    game.img = mlx_new_image(game.mlx, 800, 600);
-    game.addr = mlx_get_data_addr(game.img,
-                &game.bits_per_pixel,
-                &game.line_length,
-                &game.endian);
+    // 9. CRÉATION BUFFER IMAGE
+    data.img = mlx_new_image(data.mlx, WIN_WIDTH, WIN_HEIGHT);
+    if (!data.img)
+    {
+        printf("Error\nFailed to create image\n");
+        cleanup_and_exit(&data, &grid, &walls, 1);
+    }
+    data.addr = mlx_get_data_addr(data.img,
+                &data.bits_per_pixel,
+                &data.line_length,
+                &data.endian);
 
-    // 9. HOOKS MLX
-    mlx_hook(game.win, 17, 1L<<17, close_window, &game);    // X rouge
-    mlx_hook(game.win, 2, 1L<<0, handle_keypress, &game);   // Clavier
-    mlx_loop_hook(game.mlx, render_loop, &game);            // Rendu
+    // 10. HOOKS MLX
+    mlx_hook(data.win, 17, 1L<<17, close_window, &data);    // X rouge
+    mlx_hook(data.win, 2, 1L<<0, handle_keypress, &data);   // Clavier
+    mlx_loop_hook(data.mlx, render_hook, &data);            // Rendu
 
-    // 10. BOUCLE PRINCIPALE
-    mlx_loop(game.mlx);
+    // 11. BOUCLE PRINCIPALE
+    mlx_loop(data.mlx);
 
-    // 11. CLEANUP (jamais atteint, MLX gère l'exit)
-    free_map_grid(&map);
+    // 12. CLEANUP (appelé à la fin)
+    cleanup_game(&data, &grid, &walls);
     return (0);
 }
 ```
@@ -398,7 +414,7 @@ int check_args(int argc, char **argv)
 **Fichier :** `srcs/parsing/parse_file.c`
 
 ```c
-int check_map(int argc, char **argv, t_textures *textures, t_map *map)
+int check_map(int argc, char **argv, t_walls *walls, t_grid *grid)
 {
     char    **lines;
     int     line_count;
@@ -407,7 +423,7 @@ int check_map(int argc, char **argv, t_textures *textures, t_map *map)
     (void)argc;
 
     // 1. Initialise structure textures
-    init_textures(textures);
+    init_textures(walls);
 
     // 2. Lit toutes les lignes du fichier
     lines = store_map_lines(argv[1], &line_count);
@@ -415,13 +431,13 @@ int check_map(int argc, char **argv, t_textures *textures, t_map *map)
         return (0);
 
     // 3. Trouve où commence la map dans le fichier
-    map_start = find_map_start(lines, line_count, textures);
+    map_start = find_map_start(lines, line_count, walls);
 
     // 4. Validation complète
-    if (!validate_textures(textures) ||        // Vérifie textures définies
+    if (!validate_textures(walls) ||           // Vérifie textures définies
         map_start == -1 ||                     // Vérifie map trouvée
-        !parse_map_grid(lines, map_start, map) || // Parse grille
-        !validate_map_closed(map))             // Vérifie fermeture
+        !parse_map_grid(lines, map_start, grid) || // Parse grille
+        !validate_map_closed(grid))            // Vérifie fermeture
     {
         free_map_lines(lines, line_count);
         return (0);
@@ -750,40 +766,40 @@ static int check_border(t_map *map, int x, int y)
 **Fichier :** `srcs/player/init_player.c`
 
 ```c
-void init_player(t_player *player, t_map *map)
+void init_player(t_cam *cam, t_grid *grid)
 {
     // Position = centre de la case spawn
-    player->pos_x = map->player_x + 0.5;
-    player->pos_y = map->player_y + 0.5;
+    cam->pos_x = grid->player_x + 0.5;
+    cam->pos_y = grid->player_y + 0.5;
 
     // Direction et plan selon orientation
-    if (map->player_dir == 'N')
+    if (grid->player_dir == 'N')
     {
-        player->dir_x = 0;
-        player->dir_y = -1;     // Haut
-        player->plane_x = 0.66; // FOV horizontal
-        player->plane_y = 0;
+        cam->dir_x = 0;
+        cam->dir_y = -1;     // Haut
+        cam->plane_x = 0.66; // FOV horizontal
+        cam->plane_y = 0;
     }
-    else if (map->player_dir == 'S')
+    else if (grid->player_dir == 'S')
     {
-        player->dir_x = 0;
-        player->dir_y = 1;      // Bas
-        player->plane_x = -0.66;
-        player->plane_y = 0;
+        cam->dir_x = 0;
+        cam->dir_y = 1;      // Bas
+        cam->plane_x = -0.66;
+        cam->plane_y = 0;
     }
-    else if (map->player_dir == 'E')
+    else if (grid->player_dir == 'E')
     {
-        player->dir_x = 1;      // Droite
-        player->dir_y = 0;
-        player->plane_x = 0;
-        player->plane_y = 0.66;
+        cam->dir_x = 1;      // Droite
+        cam->dir_y = 0;
+        cam->plane_x = 0;
+        cam->plane_y = 0.66;
     }
-    else if (map->player_dir == 'W')
+    else if (grid->player_dir == 'W')
     {
-        player->dir_x = -1;     // Gauche
-        player->dir_y = 0;
-        player->plane_x = 0;
-        player->plane_y = -0.66;
+        cam->dir_x = -1;     // Gauche
+        cam->dir_y = 0;
+        cam->plane_x = 0;
+        cam->plane_y = -0.66;
     }
 }
 ```
@@ -813,12 +829,12 @@ Ouest (W):
     plane = (0, -0.66)
 ```
 
-### 5.2 Fonction init_ray()
+### 5.2 Fonction prepare_ray()
 
 **Fichier :** `srcs/raycasting/init_ray.c`
 
 ```c
-void init_ray(t_ray *ray, t_player *player, int x)
+void prepare_ray(t_cast *cast, t_cam *cam, int x)
 {
     double camera_x;
 
@@ -829,16 +845,16 @@ void init_ray(t_ray *ray, t_player *player, int x)
     camera_x = 2 * x / (double)WIN_WIDTH - 1;
 
     // 2. Direction du rayon = dir + plane * camera_x
-    ray->ray_dir_x = player->dir_x + player->plane_x * camera_x;
-    ray->ray_dir_y = player->dir_y + player->plane_y * camera_x;
+    cast->dir_x = cam->dir_x + cam->plane_x * camera_x;
+    cast->dir_y = cam->dir_y + cam->plane_y * camera_x;
 
     // 3. Case de départ
-    ray->map_x = (int)player->pos_x;
-    ray->map_y = (int)player->pos_y;
+    cast->map_x = (int)cam->pos_x;
+    cast->map_y = (int)cam->pos_y;
 
     // 4. Distance pour traverser 1 case complète
-    ray->delta_dist_x = fabs(1 / ray->ray_dir_x);
-    ray->delta_dist_y = fabs(1 / ray->ray_dir_y);
+    cast->delta_x = fabs(1 / cast->dir_x);
+    cast->delta_y = fabs(1 / cast->dir_y);
 }
 ```
 
@@ -849,62 +865,62 @@ Exemple: Joueur en (5.5, 5.5), dir=(0,-1), plane=(0.66,0)
 
 Colonne x=0 (bord gauche écran):
   camera_x = -1
-  ray_dir = (0,-1) + (0.66,0)*(-1) = (-0.66, -1)
-           ↑ dir    ↑ plane        ↑ rayon gauche
+  dir = (0,-1) + (0.66,0)*(-1) = (-0.66, -1)
+       ↑ dir    ↑ plane        ↑ rayon gauche
 
 Colonne x=400 (centre écran):
   camera_x = 0
-  ray_dir = (0,-1) + (0.66,0)*(0) = (0, -1)
-           ↑ exactement la direction du joueur
+  dir = (0,-1) + (0.66,0)*(0) = (0, -1)
+       ↑ exactement la direction du joueur
 
 Colonne x=800 (bord droit écran):
   camera_x = 1
-  ray_dir = (0,-1) + (0.66,0)*(1) = (0.66, -1)
-           ↑ rayon droite
+  dir = (0,-1) + (0.66,0)*(1) = (0.66, -1)
+       ↑ rayon droite
 ```
 
 **Delta distance :**
 ```
-Si ray_dir_x = 0.8:
-  delta_dist_x = |1 / 0.8| = 1.25
+Si dir_x = 0.8:
+  delta_x = |1 / 0.8| = 1.25
 
 Signification: Pour avancer de 1 unité en X,
                 le rayon parcourt 1.25 unités au total
 ```
 
-### 5.3 Fonction init_ray_step()
+### 5.3 Fonction setup_step()
 
 **Fichier :** `srcs/raycasting/init_ray.c`
 
 ```c
-void init_ray_step(t_ray *ray, t_player *player)
+void setup_step(t_cast *cast, t_cam *cam)
 {
     // Direction X
-    if (ray->ray_dir_x < 0)
+    if (cast->dir_x < 0)
     {
-        ray->step_direction_x = -1;  // Va vers la gauche
-        ray->dist_to_bord_x = (player->pos_x - ray->map_x)
-                              * ray->delta_dist_x;
+        cast->step_x = -1;  // Va vers la gauche
+        cast->side_x = (cam->pos_x - cast->map_x)
+                       * cast->delta_x;
     }
     else
     {
-        ray->step_direction_x = 1;   // Va vers la droite
-        ray->dist_to_bord_x = (ray->map_x + 1.0 - player->pos_x)
-                              * ray->delta_dist_x;
+        cast->step_x = 1;   // Va vers la droite
+        cast->side_x = (cast->map_x + 1.0 - cam->pos_x)
+                       * cast->delta_x;
     }
 
     // Direction Y (idem)
-    if (ray->ray_dir_y < 0)
+    if (cast->dir_y < 0)
     {
-        ray->step_direction_y = -1;
-        ray->dist_to_bord_y = (player->pos_y - ray->map_y)
-                              * ray->delta_dist_y;
+        cast->step_y = -1;
+        cast->side_y = (cam->pos_y - cast->map_y)
+                       * cast->delta_y;
     }
     else
     {
-        ray->step_direction_y = 1;
-        ray->dist_to_bord_y = (ray->map_y + 1.0 - player->pos_y)
-                              * ray->delta_dist_y;
+        cast->step_y = 1;
+        cast->side_y = (cast->map_y + 1.0 - cam->pos_y)
+                       * cast->delta_y;
     }
 }
 ```
@@ -924,12 +940,12 @@ Joueur en (5.7, 5.3), rayon vers ↗ (dir_x>0, dir_y<0)
 
 map_x = 5, map_y = 5
 
-step_direction_x = 1  (va vers 6)
-step_direction_y = -1 (va vers 4)
+step_x = 1  (va vers 6)
+step_y = -1 (va vers 4)
 
-dist_to_bord_x = (6.0 - 5.7) * delta = 0.3 * delta
-dist_to_bord_y = (5.3 - 5.0) * delta = 0.3 * delta
-                 ↑ distance à parcourir jusqu'à la bordure
+side_x = (6.0 - 5.7) * delta = 0.3 * delta
+side_y = (5.3 - 5.0) * delta = 0.3 * delta
+         ↑ distance à parcourir jusqu'à la bordure
 ```
 
 ### 5.4 Fonction algo_dda() - CŒUR DU RAYCASTING
@@ -937,7 +953,7 @@ dist_to_bord_y = (5.3 - 5.0) * delta = 0.3 * delta
 **Fichier :** `srcs/raycasting/init_ray.c`
 
 ```c
-void algo_dda(t_ray *ray, t_map *map)
+void algo_dda(t_cast *cast, t_grid *grid)
 {
     int hit;
 
@@ -945,23 +961,23 @@ void algo_dda(t_ray *ray, t_map *map)
     while (hit == 0)
     {
         // Compare les distances : quelle bordure est la plus proche ?
-        if (ray->dist_to_bord_x < ray->dist_to_bord_y)
+        if (cast->side_x < cast->side_y)
         {
             // Bordure verticale (X) plus proche
-            ray->dist_to_bord_x += ray->delta_dist_x;  // Avance
-            ray->map_x += ray->step_direction_x;       // Change de case
-            ray->side = 0;                              // Mur vertical
+            cast->side_x += cast->delta_x;  // Avance
+            cast->map_x += cast->step_x;    // Change de case
+            cast->side = 0;                 // Mur vertical
         }
         else
         {
             // Bordure horizontale (Y) plus proche
-            ray->dist_to_bord_y += ray->delta_dist_y;
-            ray->map_y += ray->step_direction_y;
-            ray->side = 1;                              // Mur horizontal
+            cast->side_y += cast->delta_y;
+            cast->map_y += cast->step_y;
+            cast->side = 1;                 // Mur horizontal
         }
 
         // Vérifie si on a touché un mur
-        if (map->grid[ray->map_y][ray->map_x] == '1')
+        if (grid->grid[cast->map_y][cast->map_x] == '1')
             hit = 1;
     }
 }
@@ -1019,30 +1035,30 @@ void algo_dda(t_ray *ray, t_map *map)
 **Fichier :** `srcs/raycasting/init_ray.c`
 
 ```c
-void calculate_wall_distance(t_ray *ray, t_player *player)
+void calculate_wall_distance(t_cast *cast, t_cam *cam)
 {
     // 1. Distance perpendiculaire (évite fisheye)
-    if (ray->side == 0)  // Mur vertical (N/S)
-        ray->perp_wall_dist = (ray->map_x - player->pos_x
-                               + (1 - ray->step_direction_x) / 2)
-                              / ray->ray_dir_x;
-    else                 // Mur horizontal (E/W)
-        ray->perp_wall_dist = (ray->map_y - player->pos_y
-                               + (1 - ray->step_direction_y) / 2)
-                              / ray->ray_dir_y;
+    if (cast->side == 0)  // Mur vertical (N/S)
+        cast->distance = (cast->map_x - cam->pos_x
+                         + (1 - cast->step_x) / 2)
+                        / cast->dir_x;
+    else                  // Mur horizontal (E/W)
+        cast->distance = (cast->map_y - cam->pos_y
+                         + (1 - cast->step_y) / 2)
+                        / cast->dir_y;
 
     // 2. Hauteur du mur à l'écran
-    ray->line_height = (int)(WIN_HEIGHT / ray->perp_wall_dist);
+    cast->wall_h = (int)(WIN_HEIGHT / cast->distance);
 
     // 3. Position exacte du hit sur le mur (pour texture)
-    if (ray->side == 0)
-        ray->wall_x = player->pos_y
-                      + ray->perp_wall_dist * ray->ray_dir_y;
+    if (cast->side == 0)
+        cast->wall_x = cam->pos_y
+                      + cast->distance * cast->dir_y;
     else
-        ray->wall_x = player->pos_x
-                      + ray->perp_wall_dist * ray->ray_dir_x;
+        cast->wall_x = cam->pos_x
+                      + cast->distance * cast->dir_x;
 
-    ray->wall_x -= floor(ray->wall_x);  // Partie fractionnaire [0, 1)
+    cast->wall_x -= floor(cast->wall_x);  // Partie fractionnaire [0, 1)
 }
 ```
 
@@ -1087,15 +1103,15 @@ Mur vertical à x=7:
 
 ## 6. MODULE RENDERING
 
-### 6.1 Fonction render_loop()
+### 6.1 Fonction render_hook()
 
 **Fichier :** `srcs/rendering/render.c`
 
 ```c
-int render_loop(t_game *game)
+int render_hook(t_data *data)
 {
     // Appelé en boucle par MLX (≈60 FPS)
-    render_frame(game, game->textures, game->map);
+    render_frame(data, data->walls, data->grid);
     return (0);
 }
 ```
@@ -1105,9 +1121,9 @@ int render_loop(t_game *game)
 **Fichier :** `srcs/rendering/render.c`
 
 ```c
-void render_frame(t_game *game, t_textures *textures, t_map *map)
+void render_frame(t_data *data, t_walls *walls, t_grid *grid)
 {
-    t_ray   ray;
+    t_cast  cast;
     int     x;
 
     // Pour chaque colonne de l'écran (800 colonnes)
@@ -1115,23 +1131,23 @@ void render_frame(t_game *game, t_textures *textures, t_map *map)
     while (x < WIN_WIDTH)
     {
         // 1. Lance un rayon pour cette colonne
-        init_ray(&ray, &game->player, x);
-        init_ray_step(&ray, &game->player);
+        prepare_ray(&cast, &data->cam, x);
+        setup_step(&cast, &data->cam);
 
         // 2. Trouve le mur
-        algo_dda(&ray, map);
+        algo_dda(&cast, grid);
 
         // 3. Calcule la distance et hauteur
-        calculate_wall_distance(&ray, &game->player);
+        calculate_wall_distance(&cast, &data->cam);
 
         // 4. Dessine la colonne (sol + mur + plafond)
-        draw_column(game, &ray, textures, x);
+        draw_column(data, &cast, walls, x);
 
         x++;
     }
 
     // 5. Affiche l'image complète à l'écran
-    mlx_put_image_to_window(game->mlx, game->win, game->img, 0, 0);
+    mlx_put_image_to_window(data->mlx, data->win, data->img, 0, 0);
 }
 ```
 
@@ -1158,24 +1174,24 @@ Chaque rayon détermine :
 **Fichier :** `srcs/rendering/draw.c`
 
 ```c
-void draw_column(t_game *game, t_ray *ray, t_textures *textures, int x)
+void draw_column(t_data *data, t_cast *cast, t_walls *walls, int x)
 {
     int start;
     int end;
 
     // 1. Calcule où commence et finit le mur à l'écran
-    calculate_draw_limits(ray, &start, &end);
+    calculate_draw_limits(cast, &start, &end);
 
     // 2. Dessine le plafond (du haut jusqu'au mur)
-    draw_vertical_line(game, x, 0, start,
-                       rgb_to_int(textures->ceiling));
+    draw_vline(data, x, 0, start,
+               rgb_to_color(walls->ceiling));
 
     // 3. Dessine le mur texturé
-    draw_textured_wall(game, ray, x, start, end);
+    draw_wall_tex(data, cast, x, start, end);
 
     // 4. Dessine le sol (du mur jusqu'au bas)
-    draw_vertical_line(game, x, end, WIN_HEIGHT - 1,
-                       rgb_to_int(textures->floor));
+    draw_vline(data, x, end, WIN_HEIGHT - 1,
+               rgb_to_color(walls->floor));
 }
 ```
 
@@ -1199,15 +1215,15 @@ y=600 └─────┘
 **Fichier :** `srcs/rendering/draw.c`
 
 ```c
-void calculate_draw_limits(t_ray *ray, int *start, int *end)
+void calculate_draw_limits(t_cast *cast, int *start, int *end)
 {
-    int line_height = ray->line_height;
+    int wall_h = cast->wall_h;
 
     // Position de départ : centre écran - moitié hauteur mur
-    *start = -line_height / 2 + WIN_HEIGHT / 2;
+    *start = -wall_h / 2 + WIN_HEIGHT / 2;
 
     // Position de fin : centre écran + moitié hauteur mur
-    *end = line_height / 2 + WIN_HEIGHT / 2;
+    *end = wall_h / 2 + WIN_HEIGHT / 2;
 
     // Clamp dans les limites de l'écran
     if (*start < 0)
@@ -1221,7 +1237,7 @@ void calculate_draw_limits(t_ray *ray, int *start, int *end)
 
 ```
 Mur à distance 2.0:
-  line_height = 600 / 2.0 = 300 pixels
+  wall_h = 600 / 2.0 = 300 pixels
 
   start = -300/2 + 600/2 = -150 + 300 = 150
   end   = 300/2 + 600/2  = 150 + 300 = 450
@@ -1230,7 +1246,7 @@ Mur à distance 2.0:
   → Centré verticalement
 
 Mur à distance 1.0:
-  line_height = 600 / 1.0 = 600 pixels
+  wall_h = 600 / 1.0 = 600 pixels
 
   start = -600/2 + 600/2 = 0
   end   = 600/2 + 600/2  = 600 → clamped à 599
@@ -1238,15 +1254,15 @@ Mur à distance 1.0:
   → Mur remplit tout l'écran
 ```
 
-### 6.5 Fonction draw_textured_wall()
+### 6.5 Fonction draw_wall_tex()
 
 **Fichier :** `srcs/rendering/texture.c`
 
 ```c
-void draw_textured_wall(t_game *game, t_ray *ray, int x,
-                        int start, int end)
+void draw_wall_tex(t_data *data, t_cast *cast, int x,
+                   int start, int end)
 {
-    t_texture_img   *tex;
+    t_img           *tex;
     int             tex_x;
     int             tex_y;
     int             y;
@@ -1254,21 +1270,21 @@ void draw_textured_wall(t_game *game, t_ray *ray, int x,
     double          tex_pos;
 
     // 1. Sélectionne la texture selon orientation
-    tex = select_texture(game, ray);
+    tex = select_texture(data, cast);
 
     // 2. Calcule colonne de texture (0 → tex_width)
-    tex_x = (int)(ray->wall_x * (double)tex->width);
+    tex_x = (int)(cast->wall_x * (double)tex->width);
 
     // 3. Inverse si nécessaire (direction du rayon)
-    if ((ray->side == 0 && ray->step_direction_x < 0) ||
-        (ray->side == 1 && ray->step_direction_y > 0))
+    if ((cast->side == 0 && cast->step_x < 0) ||
+        (cast->side == 1 && cast->step_y > 0))
         tex_x = tex->width - tex_x - 1;
 
     // 4. Calcule step (combien avancer dans texture par pixel écran)
-    step = 1.0 * tex->height / ray->line_height;
+    step = 1.0 * tex->height / cast->wall_h;
 
     // 5. Position de départ dans la texture
-    tex_pos = (start - WIN_HEIGHT / 2 + ray->line_height / 2) * step;
+    tex_pos = (start - WIN_HEIGHT / 2 + cast->wall_h / 2) * step;
 
     // 6. Dessine pixel par pixel
     y = start;
@@ -1281,7 +1297,7 @@ void draw_textured_wall(t_game *game, t_ray *ray, int x,
         tex_pos += step;
 
         // Récupère et affiche le pixel
-        put_pixel(game, x, y, get_texture_color(tex, tex_x, tex_y));
+        set_pixel(data, x, y, get_tex_color(tex, tex_x, tex_y));
 
         y++;
     }
@@ -1313,21 +1329,21 @@ Pour chaque y de 150 à 450:
 **Fichier :** `srcs/rendering/texture.c`
 
 ```c
-static t_texture_img *select_texture(t_game *game, t_ray *ray)
+static t_img *select_texture(t_data *data, t_cast *cast)
 {
-    if (ray->side == 0)      // Mur vertical (N/S)
+    if (cast->side == 0)      // Mur vertical (N/S)
     {
-        if (ray->step_direction_x > 0)
-            return (&game->tex_east);   // Regarde vers l'Est
+        if (cast->step_x > 0)
+            return (&data->tex_east);   // Regarde vers l'Est
         else
-            return (&game->tex_west);   // Regarde vers l'Ouest
+            return (&data->tex_west);   // Regarde vers l'Ouest
     }
-    else                     // Mur horizontal (E/W)
+    else                      // Mur horizontal (E/W)
     {
-        if (ray->step_direction_y > 0)
-            return (&game->tex_south);  // Regarde vers le Sud
+        if (cast->step_y > 0)
+            return (&data->tex_south);  // Regarde vers le Sud
         else
-            return (&game->tex_north);  // Regarde vers le Nord
+            return (&data->tex_north);  // Regarde vers le Nord
     }
 }
 ```
@@ -1349,12 +1365,12 @@ Mur horizontal (side=1):
   Si rayon vient de ↓  (step_y < 0) → texture NORTH
 ```
 
-### 6.7 Fonction put_pixel()
+### 6.7 Fonction set_pixel()
 
 **Fichier :** `srcs/rendering/draw.c`
 
 ```c
-void put_pixel(t_game *game, int x, int y, int color)
+void set_pixel(t_data *data, int x, int y, int color)
 {
     char *dst;
 
@@ -1363,7 +1379,7 @@ void put_pixel(t_game *game, int x, int y, int color)
         return;
 
     // Calcule l'adresse du pixel dans le buffer
-    dst = game->addr + (y * game->line_length + x * (game->bits_per_pixel / 8));
+    dst = data->addr + (y * data->line_length + x * (data->bits_per_pixel / 8));
 
     // Écrit la couleur (casting en int*)
     *(unsigned int*)dst = color;
@@ -1385,12 +1401,12 @@ Pixel (x=10, y=5):
   addr[16040..16043] = color (4 bytes)
 ```
 
-### 6.8 Fonction get_texture_color()
+### 6.8 Fonction get_tex_color()
 
 **Fichier :** `srcs/rendering/texture.c`
 
 ```c
-int get_texture_color(t_texture_img *tex, int tex_x, int tex_y)
+int get_tex_color(t_img *tex, int tex_x, int tex_y)
 {
     char *pixel;
 
@@ -1412,22 +1428,22 @@ int get_texture_color(t_texture_img *tex, int tex_x, int tex_y)
 **Fichier :** `srcs/events/handle_input.c`
 
 ```c
-int handle_keypress(int keycode, t_game *game)
+int handle_keypress(int keycode, t_data *data)
 {
     if (keycode == KEY_ESC)           // 65307
-        close_window(game);
+        close_window(data);
     else if (keycode == KEY_W)        // 119
-        move_forward_backward(&game->player, game->map, 1);
+        move_forward_backward(&data->cam, data->grid, 1);
     else if (keycode == KEY_S)        // 115
-        move_forward_backward(&game->player, game->map, 0);
+        move_forward_backward(&data->cam, data->grid, 0);
     else if (keycode == KEY_A)        // 97
-        move_left_right(&game->player, game->map, 0);
+        move_left_right(&data->cam, data->grid, 0);
     else if (keycode == KEY_D)        // 100
-        move_left_right(&game->player, game->map, 1);
+        move_left_right(&data->cam, data->grid, 1);
     else if (keycode == KEY_LEFT)     // 65361
-        rotate_camera(&game->player, 0);
+        rotate_camera(&data->cam, 0);
     else if (keycode == KEY_RIGHT)    // 65363
-        rotate_camera(&game->player, 1);
+        rotate_camera(&data->cam, 1);
 
     return (0);
 }
@@ -1438,7 +1454,7 @@ int handle_keypress(int keycode, t_game *game)
 **Fichier :** `srcs/events/handle_input.c`
 
 ```c
-static void move_forward_backward(t_player *player, t_map *map, int forward)
+static void move_forward_backward(t_cam *cam, t_grid *grid, int forward)
 {
     double new_x;
     double new_y;
@@ -1446,20 +1462,20 @@ static void move_forward_backward(t_player *player, t_map *map, int forward)
     // Calcule nouvelle position
     if (forward)
     {
-        new_x = player->pos_x + player->dir_x * MOVE_SPEED;
-        new_y = player->pos_y + player->dir_y * MOVE_SPEED;
+        new_x = cam->pos_x + cam->dir_x * MOVE_SPEED;
+        new_y = cam->pos_y + cam->dir_y * MOVE_SPEED;
     }
     else  // backward
     {
-        new_x = player->pos_x - player->dir_x * MOVE_SPEED;
-        new_y = player->pos_y - player->dir_y * MOVE_SPEED;
+        new_x = cam->pos_x - cam->dir_x * MOVE_SPEED;
+        new_y = cam->pos_y - cam->dir_y * MOVE_SPEED;
     }
 
     // Applique si pas de collision
-    if (is_valid_position(map, (int)new_x, (int)new_y))
+    if (is_valid_position(grid, (int)new_x, (int)new_y))
     {
-        player->pos_x = new_x;
-        player->pos_y = new_y;
+        cam->pos_x = new_x;
+        cam->pos_y = new_y;
     }
 }
 ```
@@ -1485,7 +1501,7 @@ Touche S (backward):
 **Fichier :** `srcs/events/handle_input.c`
 
 ```c
-static void move_left_right(t_player *player, t_map *map, int right)
+static void move_left_right(t_cam *cam, t_grid *grid, int right)
 {
     double new_x;
     double new_y;
@@ -1493,19 +1509,19 @@ static void move_left_right(t_player *player, t_map *map, int right)
     // Strafe = déplacement perpendiculaire (utilise plane)
     if (right)
     {
-        new_x = player->pos_x + player->plane_x * MOVE_SPEED;
-        new_y = player->pos_y + player->plane_y * MOVE_SPEED;
+        new_x = cam->pos_x + cam->plane_x * MOVE_SPEED;
+        new_y = cam->pos_y + cam->plane_y * MOVE_SPEED;
     }
     else  // left
     {
-        new_x = player->pos_x - player->plane_x * MOVE_SPEED;
-        new_y = player->pos_y - player->plane_y * MOVE_SPEED;
+        new_x = cam->pos_x - cam->plane_x * MOVE_SPEED;
+        new_y = cam->pos_y - cam->plane_y * MOVE_SPEED;
     }
 
-    if (is_valid_position(map, (int)new_x, (int)new_y))
+    if (is_valid_position(grid, (int)new_x, (int)new_y))
     {
-        player->pos_x = new_x;
-        player->pos_y = new_y;
+        cam->pos_x = new_x;
+        cam->pos_y = new_y;
     }
 }
 ```
@@ -1534,7 +1550,7 @@ Touche D (strafe droite):
 **Fichier :** `srcs/events/handle_input.c`
 
 ```c
-static void rotate_camera(t_player *player, int right)
+static void rotate_camera(t_cam *cam, int right)
 {
     double old_dir_x;
     double old_plane_x;
@@ -1545,18 +1561,18 @@ static void rotate_camera(t_player *player, int right)
         rot_speed = -rot_speed;
 
     // Rotation de dir
-    old_dir_x = player->dir_x;
-    player->dir_x = player->dir_x * cos(rot_speed)
-                    - player->dir_y * sin(rot_speed);
-    player->dir_y = old_dir_x * sin(rot_speed)
-                    + player->dir_y * cos(rot_speed);
+    old_dir_x = cam->dir_x;
+    cam->dir_x = cam->dir_x * cos(rot_speed)
+                 - cam->dir_y * sin(rot_speed);
+    cam->dir_y = old_dir_x * sin(rot_speed)
+                 + cam->dir_y * cos(rot_speed);
 
     // Rotation de plane (même angle)
-    old_plane_x = player->plane_x;
-    player->plane_x = player->plane_x * cos(rot_speed)
-                      - player->plane_y * sin(rot_speed);
-    player->plane_y = old_plane_x * sin(rot_speed)
-                      + player->plane_y * cos(rot_speed);
+    old_plane_x = cam->plane_x;
+    cam->plane_x = cam->plane_x * cos(rot_speed)
+                   - cam->plane_y * sin(rot_speed);
+    cam->plane_y = old_plane_x * sin(rot_speed)
+                   + cam->plane_y * cos(rot_speed);
 }
 ```
 
@@ -1594,10 +1610,10 @@ Après rotation droite:
 **Fichier :** `srcs/events/handle_input.c`
 
 ```c
-static int is_valid_position(t_map *map, int x, int y)
+static int is_valid_position(t_grid *grid, int x, int y)
 {
     // Vérifie pas un mur
-    if (map->grid[y][x] == '1')
+    if (grid->grid[y][x] == '1')
         return (0);
 
     return (1);

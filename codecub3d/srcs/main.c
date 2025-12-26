@@ -6,7 +6,7 @@
 /*   By: mcastrat <mcastrat@student.42belgium.be    +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2025/11/26 08:53:41 by mcastrat          #+#    #+#             */
-/*   Updated: 2025/12/25 19:11:43 by mcastrat         ###   ########.fr       */
+/*   Updated: 2025/12/26 15:36:41 by mcastrat         ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
@@ -15,7 +15,7 @@
 int main(int argc, char **argv)
 {
     t_data      data;
-    t_walls  walls;
+    t_walls     walls;
     t_grid       grid;
 
     ft_bzero(&data, sizeof(t_data));
